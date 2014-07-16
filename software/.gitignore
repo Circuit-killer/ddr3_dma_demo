@@ -1,0 +1,8 @@
+*.cmd
+*.ko
+*.o
+*.mod.c
+*.symvers
+*.order
+/kernel/.tmp_versions
+/userspace/test_fpga_dma

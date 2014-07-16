@@ -177,7 +177,6 @@ static ssize_t fpga_dma_write(
 		cur_len = ioread32(fpga_dma_iomem + DMA_HPS2FPGA_LENGTH);
 		if (cur_len == 0) {
 			pr_error("dma controller reached 0\n");
-			ret = -EBUSY;
 			goto fail_after_lock;
 		}
 		if (cur_len != last_len) {
