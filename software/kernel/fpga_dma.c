@@ -37,6 +37,11 @@
 #define DMA_HPS2FPGA_LENGTH (DMA_HPS2FPGA_BASE | 0xc)
 #define DMA_HPS2FPGA_CTRL (DMA_HPS2FPGA_BASE | 0x18)
 
+#define DMA_CTRL_GO (1 << 3)
+#define DMA_CTRL_I_EN (1 << 4)
+#define DMA_CTRL_LEEN (1 << 7)
+#define DMA_CTRL_QUADWORD (1 << 11)
+
 #define MAJOR_NUMBER 240
 #define DEVICE_NAME "fpga_dma"
 
@@ -54,22 +59,51 @@ static DECLARE_WAIT_QUEUE_HEAD(dma_fpga2hps_wq);
 static int status_done(unsigned long status_addr)
 {
 	int status = ioread32(fpga_dma_iomem + status_addr);
-	return status & 0x1;
+	return (status & 0x2) == 0;
 }
 
 static irqreturn_t fpga_dma_handler(int irq, void *dev_id)
 {
 	switch (irq) {
 		case DMA_FPGA2HPS_INT:
+			pr_info("Got FPGA2HPS interrupt\n");
 			wake_up_interruptible(&dma_fpga2hps_wq);
 			break;
 		case DMA_HPS2FPGA_INT:
+			pr_info("Got HPS2FPGA interrupt\n");
 			wake_up_interruptible(&dma_hps2fpga_wq);
 			break;
 		default:
 			return IRQ_NONE;
 	}
 	return IRQ_HANDLED;
+}
+
+static void setup_fpga2hps_dma(void *hps_virt_addr, unsigned long fpga_addr,
+		unsigned long count)
+{
+	unsigned long hps_phys_addr = virt_to_phys(hps_virt_addr);
+	unsigned long ctrl_flags = DMA_CTRL_GO | DMA_CTRL_I_EN |
+		DMA_CTRL_LEEN | DMA_CTRL_QUADWORD;
+
+	iowrite32(0, fpga_dma_iomem + DMA_FPGA2HPS_STATUS);
+	iowrite32(fpga_addr, fpga_dma_iomem + DMA_FPGA2HPS_READADDR);
+	iowrite32(hps_phys_addr, fpga_dma_iomem + DMA_FPGA2HPS_WRITEADDR);
+	iowrite32(count, fpga_dma_iomem + DMA_FPGA2HPS_LENGTH);
+	iowrite32(ctrl_flags, fpga_dma_iomem + DMA_FPGA2HPS_CTRL);
+}
+
+static void setup_hps2fpga_dma(unsigned long fpga_addr, void *hps_virt_addr,
+		unsigned long count)
+{
+	unsigned long hps_phys_addr = virt_to_phys(hps_virt_addr);
+	unsigned long ctrl_flags = DMA_CTRL_GO | DMA_CTRL_I_EN |
+		DMA_CTRL_LEEN | DMA_CTRL_QUADWORD;
+	iowrite32(0, fpga_dma_iomem + DMA_HPS2FPGA_STATUS);
+	iowrite32(hps_phys_addr, fpga_dma_iomem + DMA_HPS2FPGA_READADDR);
+	iowrite32(fpga_addr, fpga_dma_iomem + DMA_HPS2FPGA_WRITEADDR);
+	iowrite32(count, fpga_dma_iomem + DMA_HPS2FPGA_LENGTH);
+	iowrite32(ctrl_flags, fpga_dma_iomem + DMA_FPGA2HPS_CTRL);
 }
 
 static ssize_t fpga_dma_read(
@@ -79,22 +113,33 @@ static ssize_t fpga_dma_read(
 	char *kbuf;
 	int ret;
 
+	pr_info("starting fpga_dma read\n");
+
 	kbuf = kmalloc(count, GFP_KERNEL);
 	if (kbuf == NULL)
 		return -ENOMEM;
 
 	ret = mutex_lock_interruptible(&dma_fpga2hps_mutex);
 	if (ret < 0)
-		goto fail_lock;
+		goto fail_before_lock;
+
+	setup_fpga2hps_dma(kbuf, *f_pos, count);
 
 	ret = wait_event_interruptible(dma_fpga2hps_wq,
 			status_done(DMA_FPGA2HPS_STATUS));
 	if (ret < 0)
-		goto fail_wait;
+		goto fail_after_lock;
 
-fail_wait:
+	ret = copy_to_user(buf, kbuf, count);
+	if (ret < 0)
+		goto fail_after_lock;
+
+	*f_pos += count;
+	ret = count;
+
+fail_after_lock:
 	mutex_unlock(&dma_fpga2hps_mutex);
-fail_lock:
+fail_before_lock:
 	kfree(kbuf);
 	return ret;
 }
@@ -103,12 +148,58 @@ static ssize_t fpga_dma_write(
 		struct file *file, const char __user *buf,
 		size_t count, loff_t *f_pos)
 {
+	char *kbuf;
+	int ret;
+
+	pr_info("starting fpga_dma write\n");
+
+	kbuf = kmalloc(count, GFP_KERNEL);
+	if (kbuf == NULL)
+		return -ENOMEM;
+
+	ret = copy_from_user(kbuf, buf, count);
+	if (ret < 0)
+		goto fail_before_lock;
+
+	ret = mutex_lock_interruptible(&dma_fpga2hps_mutex);
+	if (ret < 0)
+		goto fail_before_lock;
+
+	setup_fpga2hps_dma(kbuf, *f_pos, count);
+	setup_hps2fpga_dma(*f_pos, kbuf, count);
+
+	ret = wait_event_interruptible(dma_fpga2hps_wq,
+			status_done(DMA_FPGA2HPS_STATUS));
+	if (ret < 0)
+		goto fail_after_lock;
+
+	*f_pos += count;
+	ret = count;
+
+fail_after_lock:
+	mutex_unlock(&dma_fpga2hps_mutex);
+fail_before_lock:
+	kfree(kbuf);
+	return ret;
+	return 0;
+}
+
+static int fpga_dma_open(struct inode *inode, struct file *filp)
+{
+	pr_info("opened fpga_dma\n");
+	return 0;
+}
+
+static int fpga_dma_release(struct inode *inode, struct file *filp)
+{
 	return 0;
 }
 
 static struct file_operations fpga_dma_fops = {
 	.read = fpga_dma_read,
 	.write = fpga_dma_write,
+	.open = fpga_dma_open,
+	.release = fpga_dma_release
 };
 
 static int fpga_dma_init(void)
@@ -146,6 +237,8 @@ static int fpga_dma_init(void)
 	if (ret < 0)
 		goto fail_req_irq1;
 
+	pr_info("initialized fpga_dma\n");
+
 	return 0;
 
 fail_req_irq1:
@@ -171,3 +264,6 @@ static void fpga_dma_exit(void)
 
 module_init(fpga_dma_init);
 module_exit(fpga_dma_exit);
+
+MODULE_LICENSE("GPL");
+MODULE_AUTHOR("Howard Zhehao Mao");
