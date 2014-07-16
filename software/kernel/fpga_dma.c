@@ -59,7 +59,7 @@ static DECLARE_WAIT_QUEUE_HEAD(dma_fpga2hps_wq);
 static int status_done(unsigned long status_addr)
 {
 	int status = ioread32(fpga_dma_iomem + status_addr);
-	return (status & 0x2) == 0;
+	return (status & 0x13) == 0x11;
 }
 
 static irqreturn_t fpga_dma_handler(int irq, void *dev_id)
@@ -125,10 +125,11 @@ static ssize_t fpga_dma_read(
 
 	setup_fpga2hps_dma(kbuf, *f_pos, count);
 
-	ret = wait_event_interruptible(dma_fpga2hps_wq,
+	while (!status_done(DMA_FPGA2HPS_STATUS));
+	/*ret = wait_event_interruptible(dma_fpga2hps_wq,
 			status_done(DMA_FPGA2HPS_STATUS));
 	if (ret < 0)
-		goto fail_after_lock;
+		goto fail_after_lock;*/
 
 	ret = copy_to_user(buf, kbuf, count);
 	if (ret < 0)
@@ -150,6 +151,8 @@ static ssize_t fpga_dma_write(
 {
 	char *kbuf;
 	int ret;
+	unsigned long cycle_limit = 100;
+	unsigned long cur_len, last_len, cycle_count;
 
 	pr_info("starting fpga_dma write\n");
 
@@ -165,13 +168,35 @@ static ssize_t fpga_dma_write(
 	if (ret < 0)
 		goto fail_before_lock;
 
-	setup_fpga2hps_dma(kbuf, *f_pos, count);
 	setup_hps2fpga_dma(*f_pos, kbuf, count);
 
-	ret = wait_event_interruptible(dma_fpga2hps_wq,
-			status_done(DMA_FPGA2HPS_STATUS));
+	last_len = count;
+	cycle_count = cycle_limit;
+
+	while (!status_done(DMA_HPS2FPGA_STATUS)) {
+		cur_len = ioread32(fpga_dma_iomem + DMA_HPS2FPGA_LENGTH);
+		if (cur_len == 0) {
+			pr_error("dma controller reached 0\n");
+			ret = -EBUSY;
+			goto fail_after_lock;
+		}
+		if (cur_len != last_len) {
+			pr_info("bytes left: %lu\n", cur_len);
+			last_len = cur_len;
+			cycle_count = cycle_limit;
+		}
+		cycle_count--;
+		if (cycle_count <= 0) {
+			pr_error("dma controller frozen");
+			ret = -EBUSY;
+			goto fail_after_lock;
+		}
+	}
+
+	/*ret = wait_event_interruptible(dma_fpga2hps_wq,
+			status_done(DMA_HPS2FPGA_STATUS));
 	if (ret < 0)
-		goto fail_after_lock;
+		goto fail_after_lock;*/
 
 	*f_pos += count;
 	ret = count;
