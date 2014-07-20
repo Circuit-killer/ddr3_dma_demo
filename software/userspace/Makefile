@@ -1,6 +1,9 @@
 CC=arm-linux-gnueabihf-gcc
 CFLAGS=-Wall -O2
 
-test_fpga_dma: test_fpga_dma.c
+ELFS=test_fpga_dma debug_fpga_dma
 
-debug_fpga_dma: debug_fpga_dma.c
+all: $(ELFS)
+
+clean:
+	rm -f $(ELFS) *.o
