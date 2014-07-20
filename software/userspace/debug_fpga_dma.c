@@ -26,6 +26,7 @@
 #define DMA_CTRL_REEN (1 << 5)
 #define DMA_CTRL_WEEN (1 << 6)
 #define DMA_CTRL_LEEN (1 << 7)
+#define DMA_CTRL_QUADWORD (1 << 11)
 #define DMA_CTRL_RESET (1 << 12)
 
 static volatile uint32_t *fpga_dma_iomem;
@@ -51,13 +52,13 @@ static void run_hps2fpga_transfer(void)
 	// set up control register
 	fpga_dma_iomem[DMA_CTRL] =
 		DMA_CTRL_LEEN | DMA_CTRL_REEN | DMA_CTRL_WEEN |
-		DMA_CTRL_I_EN | DMA_CTRL_WORD | DMA_CTRL_GO;
+		DMA_CTRL_QUADWORD | DMA_CTRL_GO;
 	// clear the status register
 	fpga_dma_iomem[DMA_STATUS] = 0;
 	printf("control setup, status cleared\n");
 
 	// set the length
-	fpga_dma_iomem[DMA_LENGTH] = 16;
+	fpga_dma_iomem[DMA_LENGTH] = 64;
 	printf("length set\n");
 
 	/*while (fpga_dma_iomem[DMA_HPS2FPGA_STATUS] & 0x2) {
