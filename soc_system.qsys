@@ -28,19 +28,19 @@
          type = "int";
       }
    }
-   element dma_fpga2hps.control_port_slave
-   {
-      datum baseAddress
-      {
-         value = "0";
-         type = "String";
-      }
-   }
    element dma_hps2fpga.control_port_slave
    {
       datum baseAddress
       {
          value = "32";
+         type = "String";
+      }
+   }
+   element dma_fpga2hps.control_port_slave
+   {
+      datum baseAddress
+      {
+         value = "0";
          type = "String";
       }
    }
@@ -160,15 +160,15 @@
    version="13.1"
    enabled="1"
    name="dma_hps2fpga">
-  <parameter name="allowByteTransactions" value="true" />
+  <parameter name="allowByteTransactions" value="false" />
   <parameter name="allowDoubleWordTransactions" value="true" />
-  <parameter name="allowHalfWordTransactions" value="true" />
-  <parameter name="allowQuadWordTransactions" value="true" />
-  <parameter name="allowWordTransactions" value="true" />
+  <parameter name="allowHalfWordTransactions" value="false" />
+  <parameter name="allowQuadWordTransactions" value="false" />
+  <parameter name="allowWordTransactions" value="false" />
   <parameter name="bigEndian" value="false" />
-  <parameter name="burstEnable" value="true" />
+  <parameter name="burstEnable" value="false" />
   <parameter name="fifoDepth" value="32" />
-  <parameter name="maxBurstSize" value="128" />
+  <parameter name="maxBurstSize" value="4" />
   <parameter name="minimumDmaTransactionRegisterWidth" value="32" />
   <parameter name="useRegistersForFIFO" value="false" />
   <parameter name="avalonSpec" value="2.0" />
@@ -502,8 +502,8 @@
   <parameter name="F2S_Width" value="0" />
   <parameter name="S2F_Width" value="0" />
   <parameter name="LWH2F_Enable" value="true" />
-  <parameter name="F2SDRAM_Type" value="AXI-3" />
-  <parameter name="F2SDRAM_Width" value="64" />
+  <parameter name="F2SDRAM_Type">Avalon-MM Read-Only,Avalon-MM Write-Only</parameter>
+  <parameter name="F2SDRAM_Width" value="64,64" />
   <parameter name="BONDING_OUT_ENABLED" value="false" />
   <parameter name="S2FCLK_COLDRST_Enable" value="false" />
   <parameter name="S2FCLK_PENDINGRST_Enable" value="false" />
@@ -587,7 +587,7 @@
   <parameter name="H2F_AXI_CLOCK_FREQ" value="100" />
   <parameter name="H2F_LW_AXI_CLOCK_FREQ" value="50000000" />
   <parameter name="F2H_SDRAM0_CLOCK_FREQ" value="50000000" />
-  <parameter name="F2H_SDRAM1_CLOCK_FREQ" value="100" />
+  <parameter name="F2H_SDRAM1_CLOCK_FREQ" value="50000000" />
   <parameter name="F2H_SDRAM2_CLOCK_FREQ" value="100" />
   <parameter name="F2H_SDRAM3_CLOCK_FREQ" value="100" />
   <parameter name="F2H_SDRAM4_CLOCK_FREQ" value="100" />
@@ -955,22 +955,22 @@
    version="13.1"
    enabled="1"
    name="dma_fpga2hps">
-  <parameter name="allowByteTransactions" value="true" />
+  <parameter name="allowByteTransactions" value="false" />
   <parameter name="allowDoubleWordTransactions" value="true" />
-  <parameter name="allowHalfWordTransactions" value="true" />
-  <parameter name="allowQuadWordTransactions" value="true" />
-  <parameter name="allowWordTransactions" value="true" />
+  <parameter name="allowHalfWordTransactions" value="false" />
+  <parameter name="allowQuadWordTransactions" value="false" />
+  <parameter name="allowWordTransactions" value="false" />
   <parameter name="bigEndian" value="false" />
   <parameter name="burstEnable" value="false" />
   <parameter name="fifoDepth" value="32" />
-  <parameter name="maxBurstSize" value="128" />
+  <parameter name="maxBurstSize" value="4" />
   <parameter name="minimumDmaTransactionRegisterWidth" value="32" />
   <parameter name="useRegistersForFIFO" value="false" />
   <parameter name="avalonSpec" value="2.0" />
   <parameter name="readAddressMap"><![CDATA[<address-map><slave name='mem_if_ddr3_emif_0.avl' start='0x0' end='0x40000000' /></address-map>]]></parameter>
   <parameter name="readSlaveAddressWidthMax" value="30" />
   <parameter name="readSlaveDataWidthMax" value="128" />
-  <parameter name="writeAddressMap"><![CDATA[<address-map><slave name='hps_0_bridges.f2h_sdram0_data' start='0x0' end='0x100000000' /></address-map>]]></parameter>
+  <parameter name="writeAddressMap"><![CDATA[<address-map><slave name='hps_0_bridges.f2h_sdram1_data' start='0x0' end='0x100000000' /></address-map>]]></parameter>
   <parameter name="writeSlaveAddressWidthMax" value="32" />
   <parameter name="writeSlaveDataWidthMax" value="64" />
  </module>
@@ -995,15 +995,6 @@
    version="13.1"
    start="clk_0.clk"
    end="mem_if_ddr3_emif_0.pll_ref_clk" />
- <connection
-   kind="avalon"
-   version="13.1"
-   start="dma_hps2fpga.read_master"
-   end="hps_0.f2h_sdram0_data">
-  <parameter name="arbitrationPriority" value="1" />
-  <parameter name="baseAddress" value="0x0000" />
-  <parameter name="defaultConnection" value="false" />
- </connection>
  <connection
    kind="avalon"
    version="13.1"
@@ -1064,20 +1055,34 @@
   <parameter name="defaultConnection" value="false" />
  </connection>
  <connection
+   kind="interrupt"
+   version="13.1"
+   start="hps_0.f2h_irq0"
+   end="dma_fpga2hps.irq">
+  <parameter name="irqNumber" value="1" />
+ </connection>
+ <connection
+   kind="clock"
+   version="13.1"
+   start="clk_0.clk"
+   end="hps_0.f2h_sdram1_clock" />
+ <connection
    kind="avalon"
    version="13.1"
-   start="dma_fpga2hps.write_master"
+   start="dma_hps2fpga.read_master"
    end="hps_0.f2h_sdram0_data">
   <parameter name="arbitrationPriority" value="1" />
   <parameter name="baseAddress" value="0x0000" />
   <parameter name="defaultConnection" value="false" />
  </connection>
  <connection
-   kind="interrupt"
+   kind="avalon"
    version="13.1"
-   start="hps_0.f2h_irq0"
-   end="dma_fpga2hps.irq">
-  <parameter name="irqNumber" value="1" />
+   start="dma_fpga2hps.write_master"
+   end="hps_0.f2h_sdram1_data">
+  <parameter name="arbitrationPriority" value="1" />
+  <parameter name="baseAddress" value="0x0000" />
+  <parameter name="defaultConnection" value="false" />
  </connection>
  <interconnectRequirement for="$system" name="qsys_mm.clockCrossingAdapter" value="HANDSHAKE" />
  <interconnectRequirement for="$system" name="qsys_mm.maxAdditionalLatency" value="1" />
